@@ -1,41 +1,44 @@
-// 1. Load the environment variables first
 require('dotenv').config();
-
-// 2. Define the tools we need
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 
-// Add this near the top with your other imports
+const authRoutes = require('./routes/authRoutes');
 const taskRoutes = require('./routes/taskRoutes');
+const errorHandler = require('./middleware/errorHandler');
 
-// Add this after app.use(cors())
-
-
-// 3. Initialize the app
 const app = express();
 
-// 4. Set up Middleware
+if (!process.env.JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is required');
+  process.exit(1);
+}
+
+app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:3001' }));
 app.use(express.json());
-app.use(cors());
+
+app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 
-// 5. Connect to the Database
-// We use process.env.MONGO_URI which is inside your .env file
-const dbURI = process.env.MONGO_URI;
-
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log("✅ MongoDB Connected Successfully!"))
-    .catch(err => console.log("❌ Database Connection Error: ", err));
-
-// 6. Basic Route
-app.get('/', (req, res) => {
-    res.send("TaskForge API is running...");
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok' });
 });
 
-// 7. Start the Server
-const PORT = 5000;
-app.listen(PORT, () => {
-    console.log(`🚀 Server started on port ${PORT}`);
-});
+app.use(errorHandler);
 
+const PORT = process.env.PORT || 5000;
+
+if (require.main === module) {
+  const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/TaskForge';
+
+  mongoose
+    .connect(MONGO_URI)
+    .then(() => console.log('MongoDB connected'))
+    .catch((err) => console.error('MongoDB connection error:', err));
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+module.exports = app;

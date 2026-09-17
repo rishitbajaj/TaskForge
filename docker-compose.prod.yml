@@ -1,0 +1,51 @@
+services:
+  database:
+    image: mongo:7
+    container_name: taskforge_mongodb
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - taskforge
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: taskforge_backend
+    restart: unless-stopped
+    environment:
+      - MONGO_URI=${MONGO_URI:-mongodb://database:27017/TaskForge}
+      - CLIENT_URL=${CLIENT_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - PORT=5000
+    depends_on:
+      - database
+    networks:
+      - taskforge
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health',(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: taskforge_frontend
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - taskforge
+
+networks:
+  taskforge:
+
+volumes:
+  mongo_data:

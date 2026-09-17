@@ -1,49 +1,105 @@
 const express = require('express');
-const router = express.Router();
-const Task = require('../models/Task'); // We will build this model next!
+const { body, param } = require('express-validator');
+const Task = require('../models/Task');
+const auth = require('../middleware/auth');
+const validate = require('../middleware/validate');
 
-// 1. GET ALL TASKS: This fetches everything from the DB
-router.get('/', async (req, res) => {
-    try {
-        const tasks = await Task.find();
-        res.json(tasks);
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
+const router = express.Router();
+
+router.use(auth);
+
+const taskIdValidation = param('id').isMongoId().withMessage('Invalid task id');
+
+const createTaskValidation = [
+  body('title').trim().notEmpty().withMessage('Title is required').isLength({ max: 200 }),
+  body('description').optional().trim().isLength({ max: 2000 }),
+  body('status')
+    .optional()
+    .isIn(['TODO', 'IN_PROGRESS', 'REVIEW', 'DONE'])
+    .withMessage('Invalid status'),
+  body('priority')
+    .optional()
+    .isIn(['LOW', 'MEDIUM', 'HIGH'])
+    .withMessage('Invalid priority'),
+];
+
+const updateTaskValidation = [
+  taskIdValidation,
+  body('title').optional().trim().notEmpty().withMessage('Title cannot be empty').isLength({ max: 200 }),
+  body('description').optional().trim().isLength({ max: 2000 }),
+  body('status')
+    .optional()
+    .isIn(['TODO', 'IN_PROGRESS', 'REVIEW', 'DONE'])
+    .withMessage('Invalid status'),
+  body('priority')
+    .optional()
+    .isIn(['LOW', 'MEDIUM', 'HIGH'])
+    .withMessage('Invalid priority'),
+];
+
+router.get('/', async (req, res, next) => {
+  try {
+    const tasks = await Task.find({ user: req.user._id }).sort({ createdAt: -1 });
+    return res.json(tasks);
+  } catch (error) {
+    return next(error);
+  }
 });
 
-// 2. CREATE A TASK: This saves a new task to the DB
-router.post('/', async (req, res) => {
-    const task = new Task({
-        title: req.body.title,
-        description: req.body.description
+router.post('/', createTaskValidation, validate, async (req, res, next) => {
+  try {
+    const task = await Task.create({
+      title: req.body.title.trim(),
+      description: req.body.description || '',
+      status: req.body.status || 'TODO',
+      priority: req.body.priority || 'MEDIUM',
+      user: req.user._id,
     });
 
-    try {
-        const newTask = await task.save();
-        res.status(201).json(newTask);
-    } catch (err) {
-        res.status(400).json({ message: err.message });
-    }
+    return res.status(201).json(task);
+  } catch (error) {
+    return next(error);
+  }
 });
-// Ensure it looks exactly like this:
-router.delete('/:id', async (req, res) => {
-    try {
-        await Task.findByIdAndDelete(req.params.id);
-        res.json({ message: "Task deleted" });
-    } catch (err) {
-        res.status(500).json({ message: err.message });
+
+router.put('/:id', updateTaskValidation, validate, async (req, res, next) => {
+  try {
+    const updates = {};
+    const { title, description, status, priority } = req.body;
+
+    if (title !== undefined) updates.title = title.trim();
+    if (description !== undefined) updates.description = description;
+    if (status !== undefined) updates.status = status;
+    if (priority !== undefined) updates.priority = priority;
+
+    const task = await Task.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id },
+      updates,
+      { new: true, runValidators: true }
+    );
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
     }
+
+    return res.json(task);
+  } catch (error) {
+    return next(error);
+  }
 });
-// TOGGLE TASK COMPLETION
-router.patch('/:id', async (req, res) => {
-    try {
-        const task = await Task.findById(req.params.id);
-        task.completed = !task.completed; // If true, make false. If false, make true.
-        await task.save();
-        res.json(task);
-    } catch (err) {
-        res.status(500).json({ message: err.message });
+
+router.delete('/:id', taskIdValidation, validate, async (req, res, next) => {
+  try {
+    const task = await Task.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
     }
+
+    return res.json({ message: 'Task deleted', id: req.params.id });
+  } catch (error) {
+    return next(error);
+  }
 });
+
 module.exports = router;

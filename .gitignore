@@ -5,6 +5,7 @@ frontend/node_modules/
 
 # Environment variables (The secret stuff)
 .env
+.env.production
 
 # Production builds
 build/
